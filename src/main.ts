@@ -33,24 +33,31 @@ async function bootstrap() {
   );
 
   // ── Swagger ───────────────────────────────────────
-  const config = new DocumentBuilder()
-    .setTitle('NestJS Prisma OAuth2 Starter')
-    .setDescription('Authentication & User management API')
-    .setVersion('1.0')
-    .addBearerAuth(
-      {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
-        description: 'Enter the JWT returned by POST /api/v1/auth/signin',
-      },
-      'JWT',
-    )
-    .build();
+  if (
+    process.env.NODE_ENV !== 'production' ||
+    process.env.ENABLE_SWAGGER === 'true'
+  ) {
+    const config = new DocumentBuilder()
+      .setTitle('NestJS Prisma OAuth2 Starter')
+      .setDescription('Authentication & User management API')
+      .setVersion('1.0')
+      .addTag('Auth', 'Authentication and OAuth routes')
+      .addTag('Users', 'User management routes')
+      .addBearerAuth(
+        {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT',
+          description: 'Enter the JWT returned by POST /api/v1/auth/signin',
+        },
+        'JWT',
+      )
+      .build();
 
-  SwaggerModule.setup('docs', app, () =>
-    SwaggerModule.createDocument(app, config),
-  );
+    SwaggerModule.setup('docs', app, () =>
+      SwaggerModule.createDocument(app, config),
+    );
+  }
 
   const port = process.env.PORT ?? 4000;
   await app.listen(port);

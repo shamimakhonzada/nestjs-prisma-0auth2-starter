@@ -16,6 +16,12 @@ import { AuthService } from './auth.service.js';
 import { loginSchema, signupSchema } from './schema/auth.schema.js';
 import { SignInDto, SignUpDto } from './dto/create-auth.dto.js';
 
+import {
+  SignInResponseEntity,
+  SignUpResponseEntity,
+  MessageResponseEntity,
+} from './entities/auth.entity.js';
+
 // Shared cookie config factory
 const cookieOptions = (isProd: boolean) => ({
   httpOnly: true,
@@ -36,7 +42,11 @@ export class AuthController {
 
   @ApiOperation({ summary: 'Sign in with email and password' })
   @ApiBody({ type: SignInDto })
-  @ApiResponse({ status: 200, description: 'Sign-in successful' })
+  @ApiResponse({
+    status: 200,
+    description: 'Sign-in successful',
+    type: SignInResponseEntity,
+  })
   @ApiResponse({ status: 400, description: 'Invalid email or password' })
   @Post('signin')
   @HttpCode(HttpStatus.OK)
@@ -55,7 +65,11 @@ export class AuthController {
 
   @ApiOperation({ summary: 'Register a new account' })
   @ApiBody({ type: SignUpDto })
-  @ApiResponse({ status: 201, description: 'Account created successfully' })
+  @ApiResponse({
+    status: 201,
+    description: 'Account created successfully',
+    type: SignUpResponseEntity,
+  })
   @ApiResponse({ status: 409, description: 'Email already in use' })
   @Post('signup')
   @HttpCode(HttpStatus.CREATED)
@@ -114,7 +128,11 @@ export class AuthController {
   // ── Sign out ────────────────────────────────────────────────────────────────
 
   @ApiOperation({ summary: 'Sign out (clear auth cookie)' })
-  @ApiResponse({ status: 200, description: 'Signed out successfully' })
+  @ApiResponse({
+    status: 200,
+    description: 'Signed out successfully',
+    type: MessageResponseEntity,
+  })
   @Post('signout')
   @HttpCode(HttpStatus.OK)
   signOut(@Res() res: Response): void {

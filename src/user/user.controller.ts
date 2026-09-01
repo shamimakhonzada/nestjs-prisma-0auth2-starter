@@ -26,6 +26,8 @@ import {
   changePasswordSchema,
   updateUserSchema,
 } from './schema/user.schema.js';
+import { UserEntity } from './entities/user.entity.js';
+import { MessageResponseEntity } from '../auth/entities/auth.entity.js';
 
 @ApiTags('Users')
 @ApiBearerAuth('JWT')
@@ -37,7 +39,11 @@ export class UserController {
   // ── Profile (self) ──────────────────────────────────────────────────────────
 
   @ApiOperation({ summary: 'Get current authenticated user profile' })
-  @ApiResponse({ status: 200, description: 'Current user profile' })
+  @ApiResponse({
+    status: 200,
+    description: 'Current user profile',
+    type: UserEntity,
+  })
   @Get('me')
   getMe(@Req() req: Request) {
     // req.user is already sanitized by JwtStrategy.validate() — no password exposed
@@ -50,6 +56,7 @@ export class UserController {
   @ApiResponse({
     status: 200,
     description: 'List of all users (passwords omitted)',
+    type: [UserEntity],
   })
   @Get()
   async findAll() {
@@ -57,7 +64,7 @@ export class UserController {
   }
 
   @ApiOperation({ summary: 'Get a user by ID' })
-  @ApiResponse({ status: 200, description: 'User found' })
+  @ApiResponse({ status: 200, description: 'User found', type: UserEntity })
   @ApiResponse({ status: 404, description: 'User not found' })
   @ApiParam({ name: 'id', description: 'User UUID' })
   @Get(':id')
@@ -68,7 +75,7 @@ export class UserController {
   // ── Mutations ───────────────────────────────────────────────────────────────
 
   @ApiOperation({ summary: 'Update a user profile' })
-  @ApiResponse({ status: 200, description: 'User updated' })
+  @ApiResponse({ status: 200, description: 'User updated', type: UserEntity })
   @ApiResponse({
     status: 403,
     description: 'Forbidden — can only update your own profile',
@@ -86,7 +93,11 @@ export class UserController {
   }
 
   @ApiOperation({ summary: 'Change password' })
-  @ApiResponse({ status: 200, description: 'Password changed' })
+  @ApiResponse({
+    status: 200,
+    description: 'Password changed',
+    type: MessageResponseEntity,
+  })
   @ApiResponse({
     status: 400,
     description: 'Passwords do not match / same as old',
@@ -109,7 +120,11 @@ export class UserController {
   }
 
   @ApiOperation({ summary: 'Delete a user' })
-  @ApiResponse({ status: 200, description: 'User deleted' })
+  @ApiResponse({
+    status: 200,
+    description: 'User deleted',
+    type: MessageResponseEntity,
+  })
   @ApiResponse({
     status: 403,
     description: 'Forbidden — can only delete your own account',
