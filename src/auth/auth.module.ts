@@ -1,41 +1,31 @@
 import { Global, Module } from '@nestjs/common';
-import { AuthService } from './auth.service';
-import { AuthController } from './auth.controller';
+import { AuthService } from './auth.service.js';
+import { AuthController } from './auth.controller.js';
 import { PassportModule } from '@nestjs/passport';
 import { JwtModule, JwtSignOptions } from '@nestjs/jwt';
-import { GoogleStrategy } from './strategies/google.strategy';
-import { GithubStrategy } from './strategies/github.strategy';
-import { PrismaService } from 'src/prisma/prisma.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { JwtStrategy } from './strategies/jwt.strategy';
+import { GoogleStrategy } from './strategies/google.strategy.js';
+import { GithubStrategy } from './strategies/github.strategy.js';
+import { JwtStrategy } from './strategies/jwt.strategy.js';
 
 @Global()
 @Module({
   imports: [
     ConfigModule,
-    PassportModule,
+    PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        const expiresIn = configService.get<string>('JWT_EXPIRATION') ?? '1d';
-
-        return {
-          secret: configService.getOrThrow<string>('JWT_SECRET'),
-          signOptions: {
-            expiresIn: expiresIn as JwtSignOptions['expiresIn'],
-          },
-        };
-      },
+      useFactory: (configService: ConfigService) => ({
+        secret: configService.getOrThrow<string>('JWT_SECRET'),
+        signOptions: {
+          expiresIn: (configService.get<string>('JWT_EXPIRATION') ??
+            '1d') as JwtSignOptions['expiresIn'],
+        },
+      }),
     }),
   ],
   controllers: [AuthController],
-  providers: [
-    AuthService,
-    GoogleStrategy,
-    GithubStrategy,
-    JwtStrategy,
-    PrismaService,
-  ],
-  exports: [AuthService],
+  providers: [AuthService, GoogleStrategy, GithubStrategy, JwtStrategy],
+  exports: [AuthService, JwtModule],
 })
 export class AuthModule {}

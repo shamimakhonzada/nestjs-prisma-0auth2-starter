@@ -1,115 +1,174 @@
-// auth.service.ts
-import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { PrismaService } from '../prisma/prisma.service';
-import { CreateUserDto } from 'src/user/dto/create-user.dto';
+import { db } from '../prisma/db.js';
+import * as argon2 from 'argon2';
+import type { SignUpDto } from './dto/create-auth.dto.js';
 
-interface OAuthProfile {
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+export interface OAuthProfile {
   email: string;
   name?: string | null;
-  picture?: string | null;
-  provider: string;
+  avatar?: string | null;
+  provider: 'GOOGLE' | 'GITHUB' | 'FACEBOOK';
   providerId: string;
   accessToken?: string;
-  refreshToken?: string;
-  expiresAt?: number; // usually seconds from epoch
+  refreshToken?: string | null;
+  expiresAt?: number; // seconds from epoch (unix timestamp)
 }
+
+export interface AuthResult {
+  accessToken: string;
+  user: Record<string, unknown>;
+}
+
+// ── Service ───────────────────────────────────────────────────────────────────
 
 @Injectable()
 export class AuthService {
-  constructor(
-    private prisma: PrismaService,
-    private jwtService: JwtService,
-  ) {}
+  constructor(private readonly jwtService: JwtService) {}
 
-  async oauthLogin(profile: OAuthProfile) {
-    // ────────────────────────────────────────────────
-    // Use transaction to make it atomic & safe
-    // ────────────────────────────────────────────────
-    return this.prisma.$transaction(
-      async (tx) => {
-        // Try to find existing user
-        let user = await tx.user.findUnique({
-          where: { email: profile.email },
+  // ── OAuth login / register ──────────────────────────────────────────────────
+
+  async oauthLogin(profile: OAuthProfile): Promise<AuthResult> {
+    if (!profile.email) {
+      throw new BadRequestException(
+        'OAuth provider did not return an email address. Please ensure your account has a verified email.',
+      );
+    }
+
+    // 1. Find or create the User record
+    let user = await db.orm.public.User.where({ email: profile.email }).first();
+
+    if (!user) {
+      user = await db.orm.public.User.create({
+        email: profile.email,
+        name: profile.name ?? null,
+        avatar: profile.avatar ?? null,
+      });
+    } else {
+      // Only update fields that have new data and are different
+      const nameChanged = profile.name && profile.name !== user.name;
+      const avatarChanged = profile.avatar && profile.avatar !== user.avatar;
+
+      if (nameChanged || avatarChanged) {
+        await db.orm.public.User.where({ id: user.id }).update({
+          ...(nameChanged ? { name: profile.name } : {}),
+          ...(avatarChanged ? { avatar: profile.avatar } : {}),
         });
+        // Re-fetch to get the latest data
+        const updated = await db.orm.public.User.where({ id: user.id }).first();
+        if (!updated)
+          throw new InternalServerErrorException(
+            'User sync error after OAuth update',
+          );
+        user = updated;
+      }
+    }
 
-        const now = new Date();
+    // 2. Find or upsert the OAuthAccount record
+    const existingAccount = await db.orm.public.OAuthAccount.where({
+      provider: profile.provider,
+      providerId: profile.providerId,
+    }).first();
 
-        if (!user) {
-          // Create new user
-          user = await tx.user.create({
-            data: {
-              email: profile.email,
-              name: profile.name ?? null,
-              picture: profile.picture ?? null,
-            },
-          });
-        } else {
-          // Update profile if better/new data exists
-          // Only update if new value is truthy and different
-          const shouldUpdate =
-            (profile.name && profile.name !== user.name) ||
-            (profile.picture && profile.picture !== user.picture);
+    const expiresAt = profile.expiresAt
+      ? new Date(profile.expiresAt * 1000).toISOString()
+      : null;
 
-          if (shouldUpdate) {
-            user = await tx.user.update({
-              where: { id: user.id },
-              data: {
-                name: profile.name ?? user.name,
-                picture: profile.picture ?? user.picture,
-                // emailVerified: now,  // optional: refresh verification date
-              },
-            });
-          }
-        }
+    if (existingAccount) {
+      await db.orm.public.OAuthAccount.where({ id: existingAccount.id }).update(
+        {
+          accessToken: profile.accessToken ?? null,
+          refreshToken: profile.refreshToken ?? null,
+          expiresAt,
+        },
+      );
+    } else {
+      await db.orm.public.OAuthAccount.create({
+        provider: profile.provider,
+        providerId: profile.providerId,
+        accessToken: profile.accessToken ?? null,
+        refreshToken: profile.refreshToken ?? null,
+        expiresAt,
+        userId: user.id,
+      });
+    }
 
-        // ────────────────────────────────────────────────
-        // Always upsert the OAuth account (tokens refresh)
-        // ────────────────────────────────────────────────
-        await tx.oAuthAccount.upsert({
-          where: {
-            provider_providerId: {
-              provider: profile.provider,
-              providerId: profile.providerId,
-            },
-          },
-          update: {
-            accessToken: profile.accessToken,
-            refreshToken: profile.refreshToken,
-            expiresAt: profile.expiresAt
-              ? new Date(profile.expiresAt * 1000)
-              : null,
-            // lastRefreshed: now, // optional field you can add
-          },
-          create: {
-            provider: profile.provider,
-            providerId: profile.providerId,
-            accessToken: profile.accessToken,
-            refreshToken: profile.refreshToken,
-            expiresAt: profile.expiresAt
-              ? new Date(profile.expiresAt * 1000)
-              : null,
-            userId: user.id,
-          },
-        });
+    // 3. Sign and return JWT
+    return this._buildAuthResult(user);
+  }
 
-        // ────────────────────────────────────────────────
-        // Return safe payload
-        // ────────────────────────────────────────────────
-        const payload = { sub: user.id, email: user.email };
+  // ── Credentials sign-in ─────────────────────────────────────────────────────
 
-        return {
-          accessToken: this.jwtService.sign(payload),
-          user: {
-            id: user.id,
-            email: user.email,
-            name: user.name,
-            picture: user.picture,
-            // emailVerified: user.emailVerified,
-          },
-        };
-      },
-      { maxWait: 10000, timeout: 15000 },
-    );
+  async signIn(email: string, password: string): Promise<AuthResult> {
+    const user = await db.orm.public.User.where({ email }).first();
+
+    if (!user) {
+      // Use a generic message to avoid user-enumeration attacks
+      throw new BadRequestException('Invalid email or password');
+    }
+
+    if (!user.password) {
+      throw new BadRequestException(
+        'This account was created via social login. Please sign in with Google or GitHub.',
+      );
+    }
+
+    const isPasswordValid = await argon2.verify(user.password, password);
+    if (!isPasswordValid) {
+      throw new BadRequestException('Invalid email or password');
+    }
+
+    return this._buildAuthResult(user);
+  }
+
+  // ── Registration ────────────────────────────────────────────────────────────
+
+  async signUp(
+    dto: SignUpDto,
+  ): Promise<{ message: string; data: Record<string, unknown> }> {
+    const existing = await db.orm.public.User.where({
+      email: dto.email,
+    }).first();
+    if (existing) {
+      throw new ConflictException('An account with this email already exists');
+    }
+
+    const passwordHash = await argon2.hash(dto.password);
+
+    const created = await db.orm.public.User.create({
+      email: dto.email,
+      name: dto.name,
+      username: dto.username ?? null,
+      password: passwordHash,
+      // role is NOT accepted from client — default (USER) is applied by DB
+    });
+
+    const { password: _pw, ...safeUser } = created;
+    return { message: 'Account created successfully', data: safeUser };
+  }
+
+  // ── Private helpers ─────────────────────────────────────────────────────────
+
+  private _buildAuthResult(
+    user: Record<string, unknown> & {
+      id: string;
+      email: string;
+      role: unknown;
+      password?: string | null;
+    },
+  ): AuthResult {
+    const payload = { sub: user.id, email: user.email, role: user.role };
+    const { password: _pw, ...safeUser } = user;
+    return {
+      accessToken: this.jwtService.sign(payload),
+      user: safeUser,
+    };
   }
 }

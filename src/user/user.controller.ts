@@ -1,7 +1,6 @@
 import {
   Controller,
   Get,
-  Post,
   Body,
   Patch,
   Param,
@@ -11,88 +10,116 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import { UserService } from './user.service';
-import { CreateUserDto } from './dto/create-user.dto';
-import { UpdateUserDto } from './dto/update-user.dto';
+import type { Request } from 'express';
 import { AuthGuard } from '@nestjs/passport';
 import {
   ApiBearerAuth,
-  ApiCookieAuth,
   ApiOperation,
   ApiParam,
   ApiResponse,
+  ApiTags,
 } from '@nestjs/swagger';
-import { ChangePasswordDto } from './dto/change-password.dto';
+import { UserService } from './user.service.js';
+import { UpdateUserDto } from './dto/update-user.dto.js';
+import { ChangePasswordDto } from './dto/change-password.dto.js';
+import {
+  changePasswordSchema,
+  updateUserSchema,
+} from './schema/user.schema.js';
 
+@ApiTags('Users')
+@ApiBearerAuth('JWT')
 @Controller('user')
-@UseGuards(AuthGuard('jwt')) // Protect all routes in this controller with JWT auth
-// @ApiCookieAuth()
-@ApiBearerAuth()
+@UseGuards(AuthGuard('jwt'))
 export class UserController {
   constructor(private readonly userService: UserService) {}
 
+  // ── Profile (self) ──────────────────────────────────────────────────────────
+
+  @ApiOperation({ summary: 'Get current authenticated user profile' })
+  @ApiResponse({ status: 200, description: 'Current user profile' })
   @Get('me')
-  getMe(@Req() req) {
+  getMe(@Req() req: Request) {
+    // req.user is already sanitized by JwtStrategy.validate() — no password exposed
     return req.user;
   }
 
-  @Post()
-  @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Create a new user' })
-  @ApiResponse({ status: 201, description: 'User created successfully' })
-  @ApiResponse({ status: 400, description: 'Bad request' })
-  async create(@Body() createUserDto: CreateUserDto) {
-    return await this.userService.create(createUserDto);
-  }
+  // ── Admin / read ─────────────────────────────────────────────────────────────
 
-  @ApiOperation({ summary: 'Get all user' })
-  @ApiResponse({ status: 201, description: 'All users fetched successfully' })
-  @ApiResponse({ status: 400, description: 'Bad request' })
+  @ApiOperation({ summary: 'Get all users (admin use)' })
+  @ApiResponse({
+    status: 200,
+    description: 'List of all users (passwords omitted)',
+  })
   @Get()
   async findAll() {
-    return await this.userService.findAll();
+    return this.userService.findAll();
   }
 
-  @ApiOperation({ summary: 'Get user by ID' })
-  @ApiResponse({ status: 201, description: `User with ID successfully` })
-  @ApiResponse({ status: 400, description: 'Bad request' })
-  @ApiParam({ name: 'id', description: 'User ID' })
+  @ApiOperation({ summary: 'Get a user by ID' })
+  @ApiResponse({ status: 200, description: 'User found' })
+  @ApiResponse({ status: 404, description: 'User not found' })
+  @ApiParam({ name: 'id', description: 'User UUID' })
   @Get(':id')
   async findOne(@Param('id') id: string) {
-    return await this.userService.findOne(id);
+    return this.userService.findOne(id);
   }
 
-  @ApiOperation({ summary: 'Update user' })
-  @ApiResponse({ status: 201, description: 'User updated successfully' })
-  @ApiResponse({ status: 400, description: 'Bad request' })
-  @ApiParam({ name: 'id', description: 'User ID' })
-  @Patch(':id')
-  async update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto) {
-    return await this.userService.update(id, updateUserDto);
-  }
+  // ── Mutations ───────────────────────────────────────────────────────────────
 
-  @ApiOperation({ summary: 'Update user password' })
+  @ApiOperation({ summary: 'Update a user profile' })
+  @ApiResponse({ status: 200, description: 'User updated' })
   @ApiResponse({
-    status: 201,
-    description: 'User password updated successfully',
+    status: 403,
+    description: 'Forbidden — can only update your own profile',
   })
-  @ApiResponse({ status: 400, description: 'Bad request' })
-  @ApiParam({ name: 'id', description: 'User ID' })
-  @Patch(':id/password')
-  @HttpCode(200)
-  async changePassword(
+  @ApiResponse({ status: 404, description: 'User not found' })
+  @ApiParam({ name: 'id', description: 'User UUID' })
+  @Patch(':id')
+  async update(
+    @Req() req: Request,
     @Param('id') id: string,
-    @Body() passwordDto: ChangePasswordDto,
+    @Body({ schema: updateUserSchema }) dto: UpdateUserDto,
   ) {
-    return await this.userService.changePassword(id, passwordDto);
+    const requesterId = (req.user as any).id as string;
+    return this.userService.update(requesterId, id, dto);
   }
 
-  @ApiOperation({ summary: 'Delete user' })
-  @ApiResponse({ status: 201, description: 'User deleted successfully' })
-  @ApiResponse({ status: 400, description: 'Bad request' })
-  @ApiParam({ name: 'id', description: 'User ID' })
+  @ApiOperation({ summary: 'Change password' })
+  @ApiResponse({ status: 200, description: 'Password changed' })
+  @ApiResponse({
+    status: 400,
+    description: 'Passwords do not match / same as old',
+  })
+  @ApiResponse({ status: 401, description: 'Current password is incorrect' })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden — can only change your own password',
+  })
+  @ApiParam({ name: 'id', description: 'User UUID' })
+  @Patch(':id/password')
+  @HttpCode(HttpStatus.OK)
+  async changePassword(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body({ schema: changePasswordSchema }) dto: ChangePasswordDto,
+  ) {
+    const requesterId = (req.user as any).id as string;
+    return this.userService.changePassword(requesterId, id, dto);
+  }
+
+  @ApiOperation({ summary: 'Delete a user' })
+  @ApiResponse({ status: 200, description: 'User deleted' })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden — can only delete your own account',
+  })
+  @ApiResponse({ status: 404, description: 'User not found' })
+  @ApiParam({ name: 'id', description: 'User UUID' })
   @Delete(':id')
-  async remove(@Param('id') id: string) {
-    return await this.userService.remove(id);
+  @HttpCode(HttpStatus.OK)
+  async remove(@Req() req: Request, @Param('id') id: string) {
+    const requesterId = (req.user as any).id as string;
+    return this.userService.remove(requesterId, id);
   }
 }

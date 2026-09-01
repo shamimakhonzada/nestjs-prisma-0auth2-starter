@@ -1,313 +1,364 @@
-# NestJS OAuth2 Backend (Google + GitHub + JWT + Prisma)
+# NestJS Prisma 8 Auth Starter
 
-Production-ready starter backend built with NestJS, Passport, JWT, and Prisma (PostgreSQL).
+A production-ready NestJS backend with **OAuth 2.0** (Google & GitHub), **credentials auth**, **httpOnly cookie JWT**, **role-based access**, and **Prisma 8** (contract-first ORM).
 
-This project implements OAuth 2.0 login with:
-- Google (`passport-google-oauth20`)
-- GitHub (`passport-github2`)
-
-It stores users and OAuth account links in PostgreSQL and signs JWT access tokens for authenticated API access.
-
-## Table of Contents
-1. Overview
-2. Tech Stack
-3. Project Structure
-4. Prerequisites
-5. Quick Start
-6. Environment Variables
-7. OAuth 2.0 Provider Setup
-8. How Authentication Works
-9. API Endpoints
-10. Run and Test
-11. Troubleshooting
-12. Security Notes
-13. Production Checklist
-
-## Overview
-
-### What this backend does
-- Handles Google and GitHub OAuth login flows
-- Creates/updates user records in PostgreSQL
-- Stores linked OAuth provider accounts and provider tokens
-- Issues JWT access tokens
-- Protects `/user/*` routes with `AuthGuard('jwt')`
-
-### Current flow in this codebase
-- OAuth callback calls `AuthService.oauthLogin(...)`
-- JWT is created with `@nestjs/jwt`
-- Google callback sets `access_token` cookie and redirects to frontend dashboard
-- GitHub callback redirects to frontend dashboard
-
-Important: `JwtStrategy` currently reads token from `Authorization: Bearer <token>` header, not cookies. If you rely on cookie auth, you need to extend the JWT extractor logic.
+---
 
 ## Tech Stack
 
-- Framework: NestJS v11
-- Language: TypeScript
-- Auth: Passport, JWT
-- ORM: Prisma v7
-- Database: PostgreSQL (configured for Neon/pg adapter)
-- Package manager: pnpm
+| Layer           | Technology                                  |
+| --------------- | ------------------------------------------- |
+| Framework       | NestJS 12                                   |
+| Language        | TypeScript 6                                |
+| ORM             | **Prisma 8** (`@prisma/orm-postgres`)       |
+| Database        | PostgreSQL 15+                              |
+| Auth            | Passport.js · JWT · OAuth 2.0               |
+| Validation      | Zod (route bodies) + class-validator (DTOs) |
+| Docs            | Swagger / OpenAPI (`/docs`)                 |
+| Package manager | pnpm                                        |
+
+---
 
 ## Project Structure
 
-```text
-src/
-  app.module.ts
-  main.ts
-  auth/
-    auth.module.ts
-    auth.controller.ts
-    auth.service.ts
-    strategies/
-      google.strategy.ts
-      github.strategy.ts
-      jwt.strategy.ts
-  user/
-    user.module.ts
-    user.controller.ts
-    user.service.ts
-  prisma/
-    prisma.module.ts
-    prisma.service.ts
-prisma/
-  schema.prisma
-  migrations/
 ```
+.
+├── prisma.config.ts              # Prisma 8 CLI configuration
+├── src/
+│   ├── main.ts                   # Bootstrap (helmet, CORS, cookie-parser, Swagger)
+│   ├── app.module.ts
+│   ├── auth/
+│   │   ├── auth.module.ts
+│   │   ├── auth.controller.ts    # POST signin/signup, OAuth flows, POST signout
+│   │   ├── auth.service.ts       # signIn, signUp, oauthLogin
+│   │   ├── dto/
+│   │   │   └── create-auth.dto.ts  # SignInDto, SignUpDto
+│   │   ├── schema/
+│   │   │   └── auth.schema.ts    # Zod: loginSchema, signupSchema
+│   │   └── strategies/
+│   │       ├── jwt.strategy.ts   # Reads Bearer header OR access_token cookie
+│   │       ├── google.strategy.ts
+│   │       └── github.strategy.ts
+│   ├── user/
+│   │   ├── user.module.ts
+│   │   ├── user.controller.ts    # GET/PATCH/DELETE with ownership enforcement
+│   │   ├── user.service.ts
+│   │   ├── dto/
+│   │   │   ├── create-user.dto.ts
+│   │   │   ├── update-user.dto.ts
+│   │   │   └── change-password.dto.ts
+│   │   └── schema/
+│   │       └── user.schema.ts    # Zod: createUserSchema, changePasswordSchema, updateUserSchema
+│   └── prisma/
+│       ├── contract.prisma       # ← Data contract (edit this to change schema)
+│       ├── contract.json         # Generated — commit to git
+│       ├── contract.d.ts         # Generated — commit to git
+│       └── db.ts                 # db client (import { db } from '../prisma/db.js')
+```
+
+---
+
+## Prisma 8 — How It Works
+
+Prisma 8 is **contract-first**. There is no `schema.prisma` or generated `@prisma/client`. Instead:
+
+1. **Define your models** in `src/prisma/contract.prisma`
+2. **Emit the contract** to regenerate the typed client
+3. **Query using `db.orm`** — fully typed and autocompleted
+
+### Data contract (`contract.prisma`)
+
+```prisma
+enum Role {
+  USER
+  ADMIN
+}
+
+model User {
+  id        String       @id @default(uuid())
+  email     String       @unique
+  username  String?
+  avatar    String?
+  password  String?      // null for OAuth-only accounts
+  name      String?
+  role      Role         @default(USER)
+  accounts  OAuthAccount[]
+  createdAt TimestamptzString @default(now())
+  updatedAt temporal.updatedAtString()
+}
+
+model OAuthAccount {
+  id           String    @id @default(uuid())
+  provider     String    // "GOOGLE" | "GITHUB"
+  providerId   String
+  accessToken  String?
+  refreshToken String?
+  expiresAt    DateTime?
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId       String
+  @@unique([provider, providerId])
+}
+```
+
+### Query style
+
+```ts
+import { db } from '../prisma/db.js';
+
+// Find
+const user = await db.orm.public.User.where({ email }).first();
+
+// Create
+const user = await db.orm.public.User.create({ email, name, password });
+
+// Update
+await db.orm.public.User.where({ id }).update({ name });
+
+// Delete
+await db.orm.public.User.where({ id }).delete();
+```
+
+### Prisma CLI commands
+
+```bash
+# After editing contract.prisma — regenerate contract.json + contract.d.ts
+pnpm prisma contract emit
+
+# Create / sync tables in the database
+pnpm db:update
+
+# Plan a migration
+pnpm db:migrate
+```
+
+> Both `contract.json` and `contract.d.ts` are **generated files — commit them to git**.
+
+---
 
 ## Prerequisites
 
 - Node.js 20+
 - pnpm 9+
-- PostgreSQL database (local or hosted)
-- Google OAuth app credentials
-- GitHub OAuth app credentials
+- PostgreSQL 15+
+- Google OAuth app credentials (optional)
+- GitHub OAuth app credentials (optional)
+
+---
 
 ## Quick Start
 
-1. Install dependencies:
-
 ```bash
+# 1. Install dependencies
 pnpm install
+
+# 2. Copy and fill environment variables
+cp .env.example .env
+
+# 3. Create tables in your database
+pnpm db:update
+
+# 4. Start in watch mode
+pnpm dev
 ```
 
-2. Create `.env` from template (see section below).
+Server: `http://localhost:4000`  
+Swagger docs: `http://localhost:4000/docs`
 
-3. Generate Prisma client and run migrations:
-
-```bash
-pnpm exec prisma generate
-pnpm exec prisma migrate dev --name init
-```
-
-4. Start server in watch mode:
-
-```bash
-pnpm run dev
-```
-
-5. Server starts on `http://localhost:4000` by default.
+---
 
 ## Environment Variables
 
-Create a `.env` file in project root:
-
 ```env
-# Database
-DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DB_NAME?sslmode=verify-full"
+# ── Database ─────────────────────────────────────────
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/nestjs"
 
-# JWT
-JWT_SECRET="replace_with_strong_random_secret"
-JWT_EXPIRATION="1d"
-JWT_REFRESH_SECRET="replace_with_another_secret"
-JWT_REFRESH_EXPIRATION="7d"
-
-# App
-NODE_ENV="development"
+# ── Server ───────────────────────────────────────────
 PORT=4000
+NODE_ENV=development
 FRONTEND_URL="http://localhost:3000"
 
-# Google OAuth
-GOOGLE_CLIENT_ID=""
-GOOGLE_CLIENT_SECRET=""
-GOOGLE_CALLBACK="http://localhost:4000/auth/google/callback"
+# ── JWT ──────────────────────────────────────────────
+# Generate with: openssl rand -base64 32
+JWT_SECRET="your-strong-random-secret"
+JWT_REFRESH_SECRET="your-other-strong-random-secret"
+JWT_EXPIRATION="1d"
 
-# GitHub OAuth
-GITHUB_CLIENT_ID=""
-GITHUB_CLIENT_SECRET=""
-GITHUB_CALLBACK="http://localhost:4000/auth/github/callback"
+# ── Google OAuth ─────────────────────────────────────
+GOOGLE_CLIENT_ID="your-google-client-id"
+GOOGLE_CLIENT_SECRET="your-google-client-secret"
+GOOGLE_CALLBACK="http://localhost:4000/api/v1/auth/google/callback"
+
+# ── GitHub OAuth ─────────────────────────────────────
+GITHUB_CLIENT_ID="your-github-client-id"
+GITHUB_CLIENT_SECRET="your-github-client-secret"
+GITHUB_CALLBACK="http://localhost:4000/api/v1/auth/github/callback"
 ```
 
-### Variable Notes
+> **Important:** OAuth callback URLs must point to the **backend** (`localhost:4000/api/v1/...`), not the frontend.
 
-- `JWT_SECRET` is required. Missing value causes: `secretOrPrivateKey must have a value`.
-- `FRONTEND_URL` is used by CORS in `src/main.ts`.
-- OAuth callback URLs must exactly match provider console settings.
+---
 
-## OAuth 2.0 Provider Setup
+## Authentication Flow
 
-### Google OAuth setup
+### Credentials (email + password)
 
-1. Open Google Cloud Console.
-2. Create/select a project.
-3. Configure OAuth consent screen.
-4. Create OAuth 2.0 Client ID (Web application).
-5. Add Authorized redirect URI:
-   - `http://localhost:4000/auth/google/callback`
-6. Copy client ID/secret to `.env`:
-   - `GOOGLE_CLIENT_ID`
-   - `GOOGLE_CLIENT_SECRET`
+```
+POST /api/v1/auth/signup    →  Creates account, returns { message, data }
+POST /api/v1/auth/signin    →  Validates, sets httpOnly cookie, returns { message, user }
+POST /api/v1/auth/signout   →  Clears the access_token cookie
+```
 
-### GitHub OAuth setup
+Passwords are hashed with **argon2**.
 
-1. Open GitHub Developer Settings -> OAuth Apps.
-2. Create a new OAuth App.
-3. Set Authorization callback URL:
-   - `http://localhost:4000/auth/github/callback`
-4. Copy client ID/secret to `.env`:
-   - `GITHUB_CLIENT_ID`
-   - `GITHUB_CLIENT_SECRET`
+### OAuth (Google / GitHub)
 
-## How Authentication Works
+```
+GET /api/v1/auth/google              →  Redirects to Google consent screen
+GET /api/v1/auth/google/callback     →  Sets httpOnly cookie, redirects to FRONTEND_URL/dashboard
 
-### 1) User starts OAuth login
-- `GET /auth/google`
-- `GET /auth/github`
+GET /api/v1/auth/github              →  Redirects to GitHub consent screen
+GET /api/v1/auth/github/callback     →  Sets httpOnly cookie, redirects to FRONTEND_URL/dashboard
+```
 
-Passport redirects user to provider consent screen.
+`AuthService.oauthLogin()` does:
 
-### 2) Provider redirects back
-- `GET /auth/google/callback`
-- `GET /auth/github/callback`
+1. Find-or-create `User` by email
+2. Upsert `OAuthAccount` (provider + providerId)
+3. Sign JWT → set as `httpOnly` cookie
 
-Strategy validates profile and returns normalized user data.
+### JWT / Session
 
-### 3) Backend upserts user/account
-`AuthService.oauthLogin(...)` does:
-- Find/create `User` by email
-- Upsert `OAuthAccount` by (`provider`, `providerId`)
-- Sign JWT payload `{ sub, email }`
+The JWT is stored in an **httpOnly cookie** (`access_token`).  
+`JwtStrategy` extracts it from:
 
-### 4) Client uses JWT for protected routes
-`JwtStrategy` expects:
-- `Authorization: Bearer <access_token>`
+1. `Authorization: Bearer <token>` header — for API clients, Postman, Swagger
+2. `Cookie: access_token=<token>` — for browser-based SPAs (automatic)
 
-Protected routes are in `UserController` via `@UseGuards(AuthGuard('jwt'))`.
+On every protected request, the strategy fetches the full user from the database and attaches it to `req.user` (password stripped).
+
+---
 
 ## API Endpoints
 
 ### Public
 
-- `GET /` - health-style sample response
-- `GET /auth/google` - start Google OAuth
-- `GET /auth/google/callback` - Google callback
-- `GET /auth/github` - start GitHub OAuth
-- `GET /auth/github/callback` - GitHub callback
+| Method | Endpoint                       | Description                    |
+| ------ | ------------------------------ | ------------------------------ |
+| `POST` | `/api/v1/auth/signup`          | Register with email + password |
+| `POST` | `/api/v1/auth/signin`          | Sign in, sets httpOnly cookie  |
+| `POST` | `/api/v1/auth/signout`         | Clear auth cookie              |
+| `GET`  | `/api/v1/auth/google`          | Start Google OAuth flow        |
+| `GET`  | `/api/v1/auth/google/callback` | Google OAuth callback          |
+| `GET`  | `/api/v1/auth/github`          | Start GitHub OAuth flow        |
+| `GET`  | `/api/v1/auth/github/callback` | GitHub OAuth callback          |
 
 ### Protected (JWT required)
 
-- `GET /user/me`
-- `POST /user`
-- `GET /user`
-- `GET /user/:id`
-- `PATCH /user/:id`
-- `DELETE /user/:id`
+| Method   | Endpoint                    | Description                              |
+| -------- | --------------------------- | ---------------------------------------- |
+| `GET`    | `/api/v1/user/me`           | Get current user profile                 |
+| `GET`    | `/api/v1/user`              | List all users                           |
+| `GET`    | `/api/v1/user/:id`          | Get user by ID                           |
+| `PATCH`  | `/api/v1/user/:id`          | Update user (own profile only, or ADMIN) |
+| `PATCH`  | `/api/v1/user/:id/password` | Change password (own account only)       |
+| `DELETE` | `/api/v1/user/:id`          | Delete user (own account only, or ADMIN) |
 
-### Test protected endpoint with cURL
-
-```bash
-curl -H "Authorization: Bearer YOUR_JWT" http://localhost:4000/user/me
-```
-
-## Run and Test
-
-### Development
+### Test with curl
 
 ```bash
-pnpm run dev
+# Sign in and save the token from the response body
+TOKEN=$(curl -s -X POST http://localhost:4000/api/v1/auth/signin \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@example.com","password":"MyP@ss1"}' | jq -r .accessToken)
+
+# Use token to access a protected route
+curl -H "Authorization: Bearer $TOKEN" http://localhost:4000/api/v1/user/me
 ```
 
-### Build
+---
+
+## OAuth Provider Setup
+
+### Google
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials
+2. Create OAuth 2.0 Client ID (Web application)
+3. Add Authorized redirect URI: `http://localhost:4000/api/v1/auth/google/callback`
+4. Copy `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to `.env`
+
+### GitHub
+
+1. Go to GitHub → Settings → Developer settings → OAuth Apps → New OAuth App
+2. Set Authorization callback URL: `http://localhost:4000/api/v1/auth/github/callback`
+3. Copy `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` to `.env`
+
+---
+
+## Development Scripts
 
 ```bash
-pnpm run build
-pnpm run start:prod
+pnpm dev              # Start with file watching
+pnpm build            # Compile TypeScript
+pnpm start:prod       # Run compiled output
+
+pnpm test             # Unit tests
+pnpm test:e2e         # End-to-end tests
+pnpm test:cov         # Coverage report
+
+pnpm prisma contract emit   # Regenerate contract after schema changes
+pnpm db:update              # Sync database tables
+pnpm db:migrate             # Plan a migration
 ```
 
-### Tests
+---
 
-```bash
-pnpm run test
-pnpm run test:e2e
-pnpm run test:cov
-```
+## Security
+
+| Feature              | Implementation                                          |
+| -------------------- | ------------------------------------------------------- |
+| Password hashing     | argon2 (time-cost, memory-cost hardened)                |
+| Auth token transport | httpOnly cookie (not accessible from JS)                |
+| CORS                 | Restricted to `FRONTEND_URL` with credentials           |
+| HTTP headers         | `helmet` on all responses                               |
+| Input validation     | Zod schemas + class-validator DTOs                      |
+| Role enforcement     | ADMIN / USER checked in service layer                   |
+| Ownership checks     | Users can only modify their own data                    |
+| User enumeration     | Generic `"Invalid email or password"` on signin failure |
+
+---
 
 ## Troubleshooting
 
 ### `secretOrPrivateKey must have a value`
 
-Cause:
-- `JWT_SECRET` missing/empty at runtime.
+`JWT_SECRET` is missing or empty in `.env`. Ensure `ConfigModule.forRoot({ isGlobal: true })` is present in `AppModule` (it is, by default).
 
-Fix:
-- Set `JWT_SECRET` in `.env`.
-- Ensure `ConfigModule.forRoot({ isGlobal: true })` is loaded (already in `AppModule`).
+### `redirect_uri_mismatch` (OAuth)
 
-### OAuth `redirect_uri_mismatch`
+The callback URL registered in the provider console must **exactly** match `GOOGLE_CALLBACK` / `GITHUB_CALLBACK` in `.env`, including the `/api/v1` prefix.
 
-Cause:
-- Callback URL in provider console does not match app value.
+### Cookie not sent in development
 
-Fix:
-- Verify exact match for:
-  - `GOOGLE_CALLBACK`
-  - `GITHUB_CALLBACK`
+Ensure the frontend and backend are on the same origin **or** CORS is configured with `credentials: true` and the frontend uses `fetch(..., { credentials: 'include' })` / Axios `withCredentials: true`.
 
-### Cookie not set in local development
+### `Cannot find module './contract.json'`
 
-Current Google callback sets cookie with:
-- `secure: true`
-- `sameSite: 'none'`
+Run `pnpm prisma contract emit` to generate the compiled contract files.
 
-On plain `http://localhost`, secure cookies may not persist.
+### PostgreSQL version error
 
-Options:
-- Use HTTPS locally, or
-- Make cookie security conditional by environment in controller.
-
-### PostgreSQL SSL warning about `sslmode=require`
-
-You may see a warning from `pg`/`pg-connection-string` about future SSL mode behavior.
-
-Recommended:
-- Prefer `sslmode=verify-full` with proper certificates in production.
-
-## Security Notes
-
-- Never commit real secrets in `.env`.
-- Rotate any secrets that were exposed.
-- Use strong, unique `JWT_SECRET` values.
-- Restrict CORS `origin` to trusted frontend URL(s).
-- Validate and sanitize DTO inputs.
-- Consider encrypting stored provider tokens at rest.
-
-## Production Checklist
-
-1. Set `NODE_ENV=production`.
-2. Use a managed PostgreSQL instance with TLS (`sslmode=verify-full`).
-3. Use secure secret management (Vault/SSM/GCP Secret Manager).
-4. Enable structured logging and monitoring.
-5. Configure rate limiting and helmet.
-6. Decide one token transport strategy:
-   - `Authorization` header (already supported), or
-   - HttpOnly cookie (requires JWT extractor update).
-7. Add refresh token flow and revocation strategy.
-8. Add automated tests for OAuth callbacks and guarded routes.
+Prisma 8 requires **PostgreSQL 15 or newer**. Run `SELECT version();` to verify.
 
 ---
 
-If you want, I can also add:
-- Swagger/OpenAPI docs (`/docs`) for all routes
-- an `.env.example` file
-- a Postman collection for OAuth + JWT testing
-- cookie-based JWT extraction in `JwtStrategy`
+## Production Checklist
+
+- [ ] `NODE_ENV=production`
+- [ ] Strong, unique `JWT_SECRET` (32+ bytes, from `openssl rand -base64 32`)
+- [ ] PostgreSQL with TLS / `sslmode=verify-full`
+- [ ] Secrets via a secret manager (AWS SSM, Vault, GCP Secret Manager)
+- [ ] Rate limiting on auth routes
+- [ ] Structured logging + monitoring (e.g., Pino, Datadog)
+- [ ] HTTPS with valid TLS certificate (required for `secure` cookies)
+- [ ] Refresh token flow + revocation strategy
+- [ ] Automated tests for auth flows and guarded routes

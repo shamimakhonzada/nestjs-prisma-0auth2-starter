@@ -1,0 +1,14 @@
+allowBuilds:
+  '0': bcrypt
+  '1': esbuild
+  '2': '@parcel/watcher'
+  '@parcel/watcher': true
+  '@scarf/scarf': true
+  argon2: true
+  bcrypt: true
+  core-js: true
+  esbuild: true
+  msgpackr-extract: true
+  nodemon: true
+  unrs-resolver: true
+  workerd: true

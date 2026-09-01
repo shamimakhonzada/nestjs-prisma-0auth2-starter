@@ -1,23 +1,23 @@
-generator client {
-  provider = "prisma-client-js"
-}
+// use prisma-next
 
-datasource db {
-  provider = "postgresql"
+enum Role {
+  USER
+  ADMIN
 }
 
 model User {
-  id        String   @id @default(uuid())
+  id        String      @id @default(uuid())
   email     String   @unique
+  username  String?
+  avatar    String?
+  password  String?
   name      String?
-  password  String? // nullable – only for email/password users
-  picture   String? // URL to profile picture
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  role     Role      @default(USER)
 
-  accounts OAuthAccount[]
+  accounts  OAuthAccount[]
 
-  @@map("users")
+  createdAt TimestamptzString @default(now())
+  updatedAt temporal.updatedAtString()
 }
 
 model OAuthAccount {
@@ -32,5 +32,4 @@ model OAuthAccount {
   userId String
 
   @@unique([provider, providerId])
-  @@map("oauth_accounts")
 }
