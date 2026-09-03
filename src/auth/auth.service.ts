@@ -42,66 +42,92 @@ export class AuthService {
       );
     }
 
-    // 1. Find or create the User record
-    let user = await db.orm.public.User.where({ email: profile.email }).first();
-
-    if (!user) {
-      user = await db.orm.public.User.create({
-        email: profile.email,
-        name: profile.name ?? null,
-        avatar: profile.avatar ?? null,
-      });
-    } else {
-      // Only update fields that have new data and are different
-      const nameChanged = profile.name && profile.name !== user.name;
-      const avatarChanged = profile.avatar && profile.avatar !== user.avatar;
-
-      if (nameChanged || avatarChanged) {
-        await db.orm.public.User.where({ id: user.id }).update({
-          ...(nameChanged ? { name: profile.name } : {}),
-          ...(avatarChanged ? { avatar: profile.avatar } : {}),
-        });
-        // Re-fetch to get the latest data
-        const updated = await db.orm.public.User.where({ id: user.id }).first();
-        if (!updated)
-          throw new InternalServerErrorException(
-            'User sync error after OAuth update',
-          );
-        user = updated;
-      }
-    }
-
-    // 2. Find or upsert the OAuthAccount record
-    const existingAccount = await db.orm.public.OAuthAccount.where({
-      provider: profile.provider,
-      providerId: profile.providerId,
-    }).first();
-
-    const expiresAt = profile.expiresAt
-      ? new Date(profile.expiresAt * 1000).toISOString()
+    // The contract maps expiresAt → pg/timestamptz-temporal@1 which expects a
+    // Date (or Temporal) value — NOT an ISO string. Build it once here.
+    const expiresAt: Date | null = profile.expiresAt
+      ? new Date(profile.expiresAt * 1000)
       : null;
 
-    if (existingAccount) {
-      await db.orm.public.OAuthAccount.where({ id: existingAccount.id }).update(
-        {
-          accessToken: profile.accessToken ?? null,
-          refreshToken: profile.refreshToken ?? null,
-          expiresAt,
-        },
-      );
-    } else {
-      await db.orm.public.OAuthAccount.create({
-        provider: profile.provider,
-        providerId: profile.providerId,
-        accessToken: profile.accessToken ?? null,
-        refreshToken: profile.refreshToken ?? null,
-        expiresAt,
-        userId: user.id,
-      });
-    }
+    try {
+      const user = await db.transaction(async (tx) => {
+        // 1. Find or create the User record
+        let user = await tx.orm.public.User.where((u) =>
+          u.email.eq(profile.email),
+        ).first();
 
-    // 3. Sign and return JWT
-    return this._buildAuthResult(user);
+        if (!user) {
+          user = await tx.orm.public.User.create({
+            email: profile.email,
+            name: profile.name ?? null,
+            avatar: profile.avatar ?? null,
+          });
+        } else {
+          const nameChanged = profile.name && profile.name !== user.name;
+          const avatarChanged =
+            profile.avatar && profile.avatar !== user.avatar;
+
+          if (nameChanged || avatarChanged) {
+            const updated = await tx.orm.public.User.where((u) =>
+              u.id.eq(user!.id),
+            )
+              .select(
+                'id',
+                'email',
+                'name',
+                'avatar',
+                'username',
+                'role',
+                'password',
+                'createdAt',
+                'updatedAt',
+              )
+              .update({
+                ...(nameChanged ? { name: profile.name } : {}),
+                ...(avatarChanged ? { avatar: profile.avatar } : {}),
+              });
+            if (!updated)
+              throw new InternalServerErrorException(
+                'User sync error after OAuth update',
+              );
+            user = updated;
+          }
+        }
+
+        // 2. Find or upsert the OAuthAccount record
+        const existingAccount = await tx.orm.public.OAuthAccount.where((a) =>
+          a.provider.eq(profile.provider),
+        )
+          .where((a) => a.providerId.eq(profile.providerId))
+          .first();
+
+        if (existingAccount) {
+          await tx.orm.public.OAuthAccount.where((a) =>
+            a.id.eq(existingAccount.id),
+          ).update({
+            accessToken: profile.accessToken ?? null,
+            refreshToken: profile.refreshToken ?? null,
+            expiresAt,
+          });
+        } else {
+          await tx.orm.public.OAuthAccount.create({
+            provider: profile.provider,
+            providerId: profile.providerId,
+            accessToken: profile.accessToken ?? null,
+            refreshToken: profile.refreshToken ?? null,
+            expiresAt,
+            userId: user.id,
+          });
+        }
+
+        return user;
+      });
+
+      // 3. Sign and return JWT
+      return this._buildAuthResult(user);
+    } catch (error) {
+      console.error('[AuthService] oauthLogin failed:', error);
+      throw error;
+    }
   }
 
   // ── Credentials sign-in ─────────────────────────────────────────────────────

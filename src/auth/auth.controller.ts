@@ -28,7 +28,7 @@ const cookieOptions = (isProd: boolean) => ({
   secure: isProd,
   sameSite: (isProd ? 'none' : 'lax') as 'none' | 'lax',
   path: '/',
-  maxAge: 60 * 60 * 1000, // 1 hour
+  maxAge: 24 * 60 * 60 * 1000, // 24 hour
 });
 
 @ApiTags('Auth')
