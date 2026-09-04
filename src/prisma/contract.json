@@ -88,8 +88,12 @@
               "user": {
                 "cardinality": "N:1",
                 "on": {
-                  "localFields": ["userId"],
-                  "targetFields": ["id"]
+                  "localFields": [
+                    "userId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
                 },
                 "to": {
                   "model": "User",
@@ -201,8 +205,12 @@
               "accounts": {
                 "cardinality": "1:N",
                 "on": {
-                  "localFields": ["id"],
-                  "targetFields": ["userId"]
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "userId"
+                  ]
                 },
                 "to": {
                   "model": "OAuthAccount",
@@ -295,12 +303,16 @@
                 {
                   "onDelete": "cascade",
                   "source": {
-                    "columns": ["user_id"],
+                    "columns": [
+                      "user_id"
+                    ],
                     "namespaceId": "public",
                     "tableName": "oauth_accounts"
                   },
                   "target": {
-                    "columns": ["id"],
+                    "columns": [
+                      "id"
+                    ],
                     "namespaceId": "public",
                     "tableName": "users"
                   }
@@ -308,18 +320,25 @@
               ],
               "indexes": [
                 {
-                  "columns": ["user_id"],
+                  "columns": [
+                    "user_id"
+                  ],
                   "name": "oauth_accounts_user_id_idx_6c952402",
                   "prefix": "oauth_accounts_user_id_idx",
                   "unique": false
                 }
               ],
               "primaryKey": {
-                "columns": ["id"]
+                "columns": [
+                  "id"
+                ]
               },
               "uniques": [
                 {
-                  "columns": ["provider", "provider_id"]
+                  "columns": [
+                    "provider",
+                    "provider_id"
+                  ]
                 }
               ]
             },
@@ -395,14 +414,20 @@
               "foreignKeys": [],
               "indexes": [],
               "primaryKey": {
-                "columns": ["id"]
+                "columns": [
+                  "id"
+                ]
               },
               "uniques": [
                 {
-                  "columns": ["email"]
+                  "columns": [
+                    "email"
+                  ]
                 },
                 {
-                  "columns": ["username"]
+                  "columns": [
+                    "username"
+                  ]
                 }
               ]
             }
@@ -410,7 +435,10 @@
           "valueSet": {
             "Role": {
               "kind": "valueSet",
-              "values": ["USER", "ADMIN"]
+              "values": [
+                "USER",
+                "ADMIN"
+              ]
             }
           }
         },
