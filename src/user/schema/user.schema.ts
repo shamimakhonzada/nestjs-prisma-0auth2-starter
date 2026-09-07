@@ -31,6 +31,7 @@ export const changePasswordSchema = z
 export const updateUserSchema = z.object({
   name: z.string().min(2).max(100).optional(),
   avatar: z.string().url({ message: 'Avatar must be a valid URL' }).optional(),
+  username: z.string(),
 });
 
 export type CreateUserInput = z.infer<typeof createUserSchema>;

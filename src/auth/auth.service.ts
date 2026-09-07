@@ -61,6 +61,19 @@ export class AuthService {
             name: profile.name ?? null,
             avatar: profile.avatar ?? null,
           });
+
+          const userRole = await tx.orm.public.Role.where({
+            name: 'USER',
+          }).first();
+          if (!userRole) {
+            throw new InternalServerErrorException(
+              'The default USER role is not configured',
+            );
+          }
+          await tx.orm.public.UserRole.create({
+            userId: user.id,
+            roleId: userRole.id,
+          });
         } else {
           const nameChanged = profile.name && profile.name !== user.name;
           const avatarChanged =
@@ -69,22 +82,10 @@ export class AuthService {
           if (nameChanged || avatarChanged) {
             const updated = await tx.orm.public.User.where((u) =>
               u.id.eq(user!.id),
-            )
-              .select(
-                'id',
-                'email',
-                'name',
-                'avatar',
-                'username',
-                'role',
-                'password',
-                'createdAt',
-                'updatedAt',
-              )
-              .update({
-                ...(nameChanged ? { name: profile.name } : {}),
-                ...(avatarChanged ? { avatar: profile.avatar } : {}),
-              });
+            ).update({
+              ...(nameChanged ? { name: profile.name } : {}),
+              ...(avatarChanged ? { avatar: profile.avatar } : {}),
+            });
             if (!updated)
               throw new InternalServerErrorException(
                 'User sync error after OAuth update',
@@ -167,13 +168,25 @@ export class AuthService {
     }
 
     const passwordHash = await argon2.hash(dto.password);
+    const created = await db.transaction(async (tx) => {
+      const userRole = await tx.orm.public.Role.where({ name: 'USER' }).first();
+      if (!userRole) {
+        throw new InternalServerErrorException(
+          'The default USER role is not configured',
+        );
+      }
 
-    const created = await db.orm.public.User.create({
-      email: dto.email,
-      name: dto.name,
-      username: dto.username ?? null,
-      password: passwordHash,
-      // role is NOT accepted from client — default (USER) is applied by DB
+      const user = await tx.orm.public.User.create({
+        email: dto.email,
+        name: dto.name,
+        username: dto.username ?? null,
+        password: passwordHash,
+      });
+      await tx.orm.public.UserRole.create({
+        userId: user.id,
+        roleId: userRole.id,
+      });
+      return user;
     });
 
     const { password: _pw, ...safeUser } = created;
@@ -186,11 +199,10 @@ export class AuthService {
     user: Record<string, unknown> & {
       id: string;
       email: string;
-      role: unknown;
       password?: string | null;
     },
   ): AuthResult {
-    const payload = { sub: user.id, email: user.email, role: user.role };
+    const payload = { sub: user.id, email: user.email };
     const { password: _pw, ...safeUser } = user;
     return {
       accessToken: this.jwtService.sign(payload),

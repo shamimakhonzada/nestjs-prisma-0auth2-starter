@@ -10,16 +10,23 @@ import * as argon2 from 'argon2';
 import type { UpdateUserDto } from './dto/update-user.dto.js';
 import type { ChangePasswordDto } from './dto/change-password.dto.js';
 
+type RoleName = 'ADMIN' | 'MANAGER' | 'USER';
+
 @Injectable()
 export class UserService {
   // ── Read ────────────────────────────────────────────────────────────────────
 
-  async findAll(): Promise<Record<string, unknown>[]> {
+  async findAll(requesterId: string): Promise<Record<string, unknown>[]> {
+    await this.assertAdmin(requesterId);
     const users = await db.orm.public.User.all();
     return users.map(({ password: _pw, ...u }) => u);
   }
 
-  async findOne(id: string): Promise<Record<string, unknown>> {
+  async findOne(
+    requesterId: string,
+    id: string,
+  ): Promise<Record<string, unknown>> {
+    if (requesterId !== id) await this.assertAdmin(requesterId);
     const user = await db.orm.public.User.where({ id }).first();
     if (!user) throw new NotFoundException(`User with id "${id}" not found`);
     const { password: _pw, ...safeUser } = user;
@@ -39,7 +46,7 @@ export class UserService {
     }).first();
     if (!requester) throw new UnauthorizedException();
 
-    const isAdmin = requester.role === 'ADMIN';
+    const isAdmin = await this.hasRole(requester.id, 'ADMIN');
     if (!isAdmin && requesterId !== targetId) {
       throw new ForbiddenException('You can only update your own profile');
     }
@@ -65,7 +72,7 @@ export class UserService {
     }).first();
     if (!requester) throw new UnauthorizedException();
 
-    const isAdmin = requester.role === 'ADMIN';
+    const isAdmin = await this.hasRole(requester.id, 'ADMIN');
     if (!isAdmin && requesterId !== targetId) {
       throw new ForbiddenException('You can only delete your own account');
     }
@@ -116,5 +123,20 @@ export class UserService {
     await db.orm.public.User.where({ id: targetId }).update({ password: hash });
 
     return { message: 'Password changed successfully' };
+  }
+
+  private async assertAdmin(userId: string): Promise<void> {
+    if (!(await this.hasRole(userId, 'ADMIN'))) {
+      throw new ForbiddenException('Administrator access is required');
+    }
+  }
+
+  private async hasRole(userId: string, roleName: RoleName): Promise<boolean> {
+    const role = await db.orm.public.Role.where({ name: roleName }).first();
+    if (!role) return false;
+
+    return Boolean(
+      await db.orm.public.UserRole.where({ userId, roleId: role.id }).first(),
+    );
   }
 }

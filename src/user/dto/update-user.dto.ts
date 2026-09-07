@@ -13,4 +13,10 @@ export class UpdateUserDto {
   @IsString()
   @IsOptional()
   avatar?: string;
+
+  @IsString()
+  @IsOptional()
+  @MinLength(3)
+  @MaxLength(25)
+  username: string;
 }

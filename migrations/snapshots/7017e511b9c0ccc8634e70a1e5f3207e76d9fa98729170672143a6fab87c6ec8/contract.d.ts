@@ -33,7 +33,7 @@ import type {
 } from '@prisma/orm-postgres/contract/types';
 
 export type StorageHash =
-  StorageHashBase<'8220761f0be676e67de2a6e6442773ece22abdd8a9bdddc31aaef16725aa0d2d'>;
+  StorageHashBase<'7017e511b9c0ccc8634e70a1e5f3207e76d9fa98729170672143a6fab87c6ec8'>;
 export type ExecutionHash =
   ExecutionHashBase<'7e89d6637428c6b358d1bc9870cee1113f11728658d93a3e1945b1fa99def1d4'>;
 export type ProfileHash =
@@ -541,9 +541,7 @@ export type FieldOutputTypes = {
     };
     readonly Role: {
       readonly id: CodecTypes['pg/text@1']['output'];
-      readonly name: 'ADMIN' | 'MANAGER' | 'USER';
-      readonly description: CodecTypes['pg/text@1']['output'] | null;
-      readonly isActive: CodecTypes['pg/bool@1']['output'];
+      readonly name: CodecTypes['pg/text@1']['output'];
     };
     readonly User: {
       readonly id: CodecTypes['pg/text@1']['output'];
@@ -576,9 +574,7 @@ export type FieldInputTypes = {
     };
     readonly Role: {
       readonly id: CodecTypes['pg/text@1']['input'];
-      readonly name: 'ADMIN' | 'MANAGER' | 'USER';
-      readonly description: CodecTypes['pg/text@1']['input'] | null;
-      readonly isActive: CodecTypes['pg/bool@1']['input'];
+      readonly name: CodecTypes['pg/text@1']['input'];
     };
     readonly User: {
       readonly id: CodecTypes['pg/text@1']['input'];
@@ -610,10 +606,8 @@ export type StorageColumnTypes = {
       readonly user_id: CodecTypes['pg/text@1']['output'];
     };
     readonly roles: {
-      readonly description: CodecTypes['pg/text@1']['output'] | null;
       readonly id: CodecTypes['pg/text@1']['output'];
-      readonly is_active: CodecTypes['pg/bool@1']['output'];
-      readonly name: 'ADMIN' | 'MANAGER' | 'USER';
+      readonly name: CodecTypes['pg/text@1']['output'];
     };
     readonly user_roles: {
       readonly assigned_at: CodecTypes['pg/timestamptz-temporal@1']['output'];
@@ -645,10 +639,8 @@ export type StorageColumnInputTypes = {
       readonly user_id: CodecTypes['pg/text@1']['input'];
     };
     readonly roles: {
-      readonly description: CodecTypes['pg/text@1']['input'] | null;
       readonly id: CodecTypes['pg/text@1']['input'];
-      readonly is_active: CodecTypes['pg/bool@1']['input'];
-      readonly name: 'ADMIN' | 'MANAGER' | 'USER';
+      readonly name: CodecTypes['pg/text@1']['input'];
     };
     readonly user_roles: {
       readonly assigned_at: CodecTypes['pg/timestamptz-temporal@1']['input'];
@@ -761,20 +753,6 @@ type ContractBase = Omit<
                   readonly nativeType: 'text';
                   readonly codecId: 'pg/text@1';
                   readonly nullable: false;
-                };
-                readonly description: {
-                  readonly nativeType: 'text';
-                  readonly codecId: 'pg/text@1';
-                  readonly nullable: true;
-                };
-                readonly is_active: {
-                  readonly nativeType: 'bool';
-                  readonly codecId: 'pg/bool@1';
-                  readonly nullable: false;
-                  readonly default: {
-                    readonly kind: 'literal';
-                    readonly value: DefaultLiteralValue<'pg/bool@1', true>;
-                  };
                 };
               };
               primaryKey: { readonly columns: readonly ['id'] };
@@ -903,12 +881,6 @@ type ContractBase = Omit<
               foreignKeys: readonly [];
             };
           };
-          readonly valueSet: {
-            readonly RoleName: {
-              readonly kind: 'valueSet';
-              readonly values: readonly ['ADMIN', 'MANAGER', 'USER'];
-            };
-          };
         };
       };
     };
@@ -1035,20 +1007,6 @@ type ContractBase = Omit<
                   readonly codecId: 'pg/text@1';
                 };
               };
-              readonly description: {
-                readonly nullable: true;
-                readonly type: {
-                  readonly kind: 'scalar';
-                  readonly codecId: 'pg/text@1';
-                };
-              };
-              readonly isActive: {
-                readonly nullable: false;
-                readonly type: {
-                  readonly kind: 'scalar';
-                  readonly codecId: 'pg/bool@1';
-                };
-              };
             };
             readonly relations: {
               readonly users: {
@@ -1069,8 +1027,6 @@ type ContractBase = Omit<
               readonly fields: {
                 readonly id: { readonly column: 'id' };
                 readonly name: { readonly column: 'name' };
-                readonly description: { readonly column: 'description' };
-                readonly isActive: { readonly column: 'is_active' };
               };
             };
           };
@@ -1229,16 +1185,6 @@ type ContractBase = Omit<
                 readonly assignedAt: { readonly column: 'assigned_at' };
               };
             };
-          };
-        };
-        readonly enum: {
-          readonly RoleName: {
-            readonly codecId: 'pg/text@1';
-            readonly members: readonly [
-              { readonly name: 'ADMIN'; readonly value: 'ADMIN' },
-              { readonly name: 'MANAGER'; readonly value: 'MANAGER' },
-              { readonly name: 'USER'; readonly value: 'USER' },
-            ];
           };
         };
       };

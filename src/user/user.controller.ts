@@ -59,8 +59,8 @@ export class UserController {
     type: [UserEntity],
   })
   @Get()
-  async findAll() {
-    return this.userService.findAll();
+  async findAll(@Req() req: Request) {
+    return this.userService.findAll((req.user as { id: string }).id);
   }
 
   @ApiOperation({ summary: 'Get a user by ID' })
@@ -68,8 +68,8 @@ export class UserController {
   @ApiResponse({ status: 404, description: 'User not found' })
   @ApiParam({ name: 'id', description: 'User UUID' })
   @Get(':id')
-  async findOne(@Param('id') id: string) {
-    return this.userService.findOne(id);
+  async findOne(@Req() req: Request, @Param('id') id: string) {
+    return this.userService.findOne((req.user as { id: string }).id, id);
   }
 
   // ── Mutations ───────────────────────────────────────────────────────────────
